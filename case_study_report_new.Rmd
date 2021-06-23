@@ -1,8 +1,13 @@
 ---
 title: 'Case Study : BikeTrips (Last 12 months data)'
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
 author: "Jyotisman"
 date: "6/12/2021"
-output:html_document
+output: html_document
 ---
 
 ## Import and Load libraries
@@ -21,7 +26,7 @@ The business task entails exploring how different customer types are using Cycli
 
 The relevant data was obtained from [here](https://divvy-tripdata.s3.amazonaws.com/index.html) and stored locally. It has been made available by Motivate International Inc. under this [license](https://www.divvybikes.com/data-license-agreement).
 ```{r message = FALSE}
-files <- list.files(path = "2021+2020", pattern = "*.csv", full.names = T)
+files <- list.files(path = "/Users/jyotisman/Library/Mobile Documents/com~apple~CloudDocs/Google_Data_analytics/Case_study/bike_trips_data/2021+2020", pattern = "*.csv", full.names = T)
 tbl <- lapply(files, read_csv)
 ```
 ## Data Cleaning 
