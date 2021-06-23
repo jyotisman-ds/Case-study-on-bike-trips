@@ -1,0 +1,279 @@
+---
+title: 'Case Study : BikeTrips (Last 12 months data)'
+author: "Jyotisman"
+date: "6/12/2021"
+output:html_document
+---
+
+## Import and Load libraries
+Let's start by installing the tidyverse package. We also have to load the lubridate package separately as it does not automatically gets loaded with tidyverse.
+
+```{r echo = FALSE}
+install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+library(tidyverse)
+library(lubridate)
+```
+
+
+## Collect Data
+
+The business task entails exploring how different customer types are using Cyclistic bikes and for that we will use Cyclistic's historical trip data to analyze and identify trends. We will use last 12 months of data starting from the May of 2020 to April of 2021.
+
+The relevant data was obtained from [here](https://divvy-tripdata.s3.amazonaws.com/index.html) and stored locally. It has been made available by Motivate International Inc. under this [license](https://www.divvybikes.com/data-license-agreement).
+```{r message = FALSE}
+files <- list.files(path = "2021+2020", pattern = "*.csv", full.names = T)
+tbl <- lapply(files, read_csv)
+```
+## Data Cleaning 
+
+From reading the column specifications above, we can see that each dataset share the same column names. The only cleaning needed is the change of 'start_station_id' and 'end_station_id' to **character** data types as they appear as **double** in some older data sets. This is needed before we combine all of them into one single data frame.
+
+```{r}
+tbl <-  lapply(tbl, function(x){mutate(x, start_station_id = as.character(start_station_id),
+                   end_station_id = as.character(end_station_id))}) 
+all_trips <- bind_rows(tbl)
+head(all_trips)
+```
+
+Let's check the column name again.
+```{r}
+colnames(all_trips)
+```
+
+And also the structure of the dataset -----
+
+```{r}
+str(all_trips)
+```
+
+We do not need all the columns for example the latitude and longitude information. Let's remove them.
+```{r}
+all_trips <- all_trips %>%  
+  select(-c(start_lat, start_lng, end_lat, end_lng))
+```
+
+```{r}
+nrow(all_trips)
+```
+```{r}
+str(all_trips)
+```
+
+summary() can be used to look at basic summary statistics of each column. Let's do that next.
+```{r}
+summary(all_trips)
+```
+Let's view the null values in the data frame that shows up in the summary. 
+```{r}
+all_trips[!complete.cases(all_trips),]
+```
+Seems like there are around **200,000** observations with null values in at least one column. Let's see if any of the columns we will be using are part of these.
+
+```{r}
+all_trips[!complete.cases(all_trips$started_at),]
+```
+```{r}
+all_trips[!complete.cases(all_trips$ended_at),]
+```
+```{r}
+all_trips[!complete.cases(all_trips$member_casual),]
+```
+
+```{r}
+all_trips[!(complete.cases(all_trips$end_station_id) | complete.cases(all_trips$end_station_name)),]
+```
+```{r}
+all_trips[!(complete.cases(all_trips$start_station_id) | complete.cases(all_trips$start_station_name)),]
+```
+
+Seems like its the station ids (and names) that are missing which we won't be using further in our analysis. So we don't have to worry about the null values at least for the time being.
+
+Next, let's find out the unique values in the column member_casual. As mentioned in the business task, we should have two - **member** and **casual**.  
+
+```{r}
+unique(all_trips$member_casual)
+```
+
+Since we are interested in trends over months, days or days of the week, its good to create separate columns for each of them.
+
+```{r}
+all_trips$date <- as.Date(all_trips$started_at) #The default format is yyyy-mm-dd
+all_trips$month <- format(as.Date(all_trips$date), "%m")
+all_trips$day <- format(as.Date(all_trips$date), "%d")
+all_trips$year <- format(as.Date(all_trips$date), "%Y")
+all_trips$day_of_week <- format(as.Date(all_trips$date), "%A")
+all_trips$hour_of_day <- format(all_trips$started_at, "%H")
+```
+```{r}
+head(all_trips)
+```
+Now, we will create a column - **ride_length**, to measure the trip duration of each ride. 
+
+```{r}
+all_trips$ride_length <- as.numeric(difftime(all_trips$ended_at,all_trips$started_at))
+```
+
+Make sure it is numeric.
+
+```{r}
+is.numeric(all_trips$ride_length)
+```
+
+Now we are going to remove data that correspond to the ride_length being negative as its un-physical. Let's store this in a new data frame - **all_trips_v2** as we will removing a portion of the original data.
+
+```{r}
+all_trips_v2 <- all_trips[!all_trips$ride_length<0,]
+```
+
+## Descriptive Analysis
+
+Let's find some general statistical descriptions of the **ride_length** variable.
+
+```{r}
+summary(all_trips_v2$ride_length)
+```
+
+First, let's compare the summary statistics by rider types.
+```{r}
+all_trips_v2 %>% 
+  group_by(member_casual) %>% 
+  summarise(mean_rl = mean(ride_length), median_rl = median(ride_length), max_rl = max(ride_length), min_rl = min(ride_length), num_rides = n())
+```
+This clearly brings out one some differences between casual and member riders. Casual riders use the bikes for a much longer duration on average. But the number of member rides is clearly greater in the same period. These factors could play a role in differentiating these the different riders. Let's view the same analysis on a more granular set.  
+
+Let's now add in the day of the week into the aggregation as well and only look at the mean rides. 
+
+```{r}
+all_trips_v2 %>% 
+  group_by(day_of_week, member_casual) %>% 
+  summarise(mean_rl = mean(ride_length))
+```
+Or the same can be done with the aggregate function as follows---
+```{r}
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual + all_trips_v2$day_of_week, FUN = mean)
+```
+
+```{r}
+# analyze ridership data by type and weekday
+counts_day_of_week <- all_trips_v2 %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>%  
+  group_by(member_casual, weekday) %>%  
+  summarise(number_of_rides = n(),							 
+  average_duration = mean(ride_length)) %>% 		
+  arrange(member_casual, weekday)								
+```
+```{r}
+head(counts_day_of_week)
+```
+```{r}
+write.csv(counts_day_of_week, file = "avg_count_ride_length_wday_new.csv")
+```
+```{r}
+# analyze ridership data by type and month
+counts_month <- all_trips_v2 %>% 
+  group_by(member_casual, month) %>%  
+  summarise(number_of_rides = n(),							 
+  average_duration = mean(ride_length)) %>% 		
+  arrange(member_casual, month)
+```
+```{r}
+head(counts_month)
+```
+```{r}
+write.csv(counts_month, file = "avg_count_ride_length_month_new.csv")
+```
+## Visualizing our analysis
+First, let's visulaize the number of rides per user type on different days of the week.
+```{r}
+all_trips_v2 %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>% 
+  group_by(member_casual, weekday) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, weekday)  %>% 
+  ggplot(aes(x = weekday, y = number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title = "Casual vs member riders by days of week")
+```
+
+The annual members clearly do more rides than casual riders for any weekday. But does not hold so for the weekends. Important takeaway here - While the surge in casual riders happen during the weekends, the annual members use the service more often during the weekdays.  
+Next, let's do the same but with mean duration of rides. 
+```{r}
+# Let's create a visualization for average duration
+all_trips_v2 %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>% 
+  group_by(member_casual, weekday) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, weekday)  %>% 
+  ggplot(aes(x = weekday, y = average_duration, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title = "Average trip durations for casual vs member riders")
+```
+
+Takeaway - The mean duration is significantly higher for the casual riders for any day of the week.  
+How about the trend across months in a year? Let's see that now. 
+```{r}
+all_trips_v2 %>% 
+  group_by(member_casual, month) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, month)  %>% 
+  ggplot(aes(x = month, y = number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title = "Trend of casual vs member riders over a year")
+```
+
+Not much difference in the trends for the two groups. Close to a **normal** curve for both groups with peaks around **July-August**.  
+
+```{r}
+all_trips_v2 %>% 
+  group_by(member_casual, month) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, month)  %>% 
+  ggplot(aes(x = month, y = average_duration, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title = "Trend of ride duration for riders over a year")
+```
+
+
+
+Let's now explore one more layer of granularity, the hours of a day. Let's divide the analysis into weekdays and weekends. 
+
+### Weekdays
+
+```{r}
+# For weekdays ----
+all_trips_v2 %>% 
+  filter(!day_of_week %in% c("Saturday", "Sunday")) %>% 
+  group_by(member_casual, hour_of_day) %>% 
+  summarise(avg_number_of_rides = n()/5
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, hour_of_day)  %>% 
+  ggplot(aes(x = hour_of_day, y = avg_number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title = "Number of riders by hour of day on weekdays")
+```
+
+Two peaks for annual members, one in the morning hours and the other in in the evening around 4-5pm. Casual riders have a lower outing on average with riders gradually peaking in the evening around 4-5pm.
+
+### Weekends
+
+```{r}
+# For weekends----- 
+all_trips_v2 %>% 
+  filter(day_of_week %in% c("Saturday", "Sunday")) %>% 
+  group_by(member_casual, hour_of_day) %>% 
+  summarise(avg_number_of_rides = n()/2
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, hour_of_day)  %>% 
+  ggplot(aes(x = hour_of_day, y = avg_number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title = "Average ride duration by hour of dayon weekends")
+```
+
+The trend here is similar for both groups. There is a decent increase of the casual riders in weekends (~5000 - 10000 on average) and the number of annual members have also fallen down quite a bit from the weekdays and are definitely not leading anymore for a significant chunk of the day especially close to the peak.  
+
+*The aggregated data have been written to csv files earlier and can be used for further analysis.*
+
